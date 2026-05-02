@@ -4,12 +4,11 @@ Place at the ROOT of the booking-service repo alongside bookings.py.
 
 Extra: mocks utility.get so HTTP calls to EventService are never made.
 Also mocks the message broker publish so Azure Service Bus is not needed.
-"""
-import sys
-import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'shared'))
-sys.path.insert(0, os.path.dirname(__file__))
+volunteer-shared must be installed (via Azure Artifacts) before running tests,
+so database, models, auth etc. are importable as regular installed packages.
+"""
+import os
 
 import pytest
 from sqlalchemy import create_engine
@@ -75,6 +74,7 @@ def db():
 @pytest.fixture()
 def client(db):
     from fastapi.testclient import TestClient
+    from datetime import datetime
 
     # Seed test user and event so FK constraints pass
     test_user = models.User(
@@ -82,7 +82,6 @@ def client(db):
         password=auth.hash_password("password123"),
         name="Test User",
     )
-    from datetime import datetime
     test_event = models.Event(
         id=1,
         event_date=datetime(2025, 9, 1, 10, 0),

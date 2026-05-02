@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Azure Pipelines – user_service
+# Azure Pipelines – booking_service
 #
 # Stage 1 – Static Analysis  : flake8 syntax / style check
 # Stage 2 – Tests            : pytest, results published as JUnit + artifacts
@@ -106,13 +106,14 @@ stages:
               pip install -r requirements.txt
               pip install pytest pytest-cov sqlalchemy \
                           python-jose[cryptography] passlib \
-                          httpx pyodbc
+                          httpx pyodbc volunteer-shared
             displayName: "Install dependencies"
 
           - script: |
               mkdir -p test-results
-              pytest test_bookings.py \
+              pytest tests/ \
                 -v \
+                --asyncio-mode=auto \
                 --junitxml=test-results/results.xml \
                 --cov=. \
                 --cov-report=xml:test-results/coverage.xml \
