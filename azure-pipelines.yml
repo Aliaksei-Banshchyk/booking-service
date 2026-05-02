@@ -1,0 +1,79 @@
+# ============================================================
+# Azure Pipelines – BookingService  (multi-repo setup)
+# volunteer-shared is installed from Azure Artifacts
+# ============================================================
+
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  PYTHON_VERSION: "3.12"
+  ARTIFACTS_FEED: "volunteer-feed"
+
+steps:
+  - checkout: self
+
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: $(PYTHON_VERSION)
+      addToPath: true
+    displayName: "Use Python $(PYTHON_VERSION)"
+
+  - task: PipAuthenticate@1
+    inputs:
+      artifactFeeds: $(ARTIFACTS_FEED)
+    displayName: "Authenticate with Azure Artifacts"
+
+  - script: |
+      python -m pip install --upgrade pip
+      pip install -r requirements.txt
+      pip install flake8 mypy pytest pytest-asyncio pytest-cov httpx aiosqlite
+    displayName: "Install dependencies"
+
+  - script: |
+      flake8 booking_service/ main.py \
+        --max-line-length=120 \
+        --exclude=__pycache__,.venv \
+        --statistics
+    displayName: "Lint: flake8"
+
+  - script: |
+      mypy booking_service/ \
+        --ignore-missing-imports \
+        --no-strict-optional
+    displayName: "Type check: mypy"
+
+  - script: |
+      pytest booking_service/tests/ \
+        --asyncio-mode=auto \
+        --cov=booking_service \
+        --cov-report=xml:coverage.xml \
+        --cov-report=term-missing \
+        -v
+    displayName: "Run unit tests"
+    env:
+      AZURE_PG_URL: "sqlite+aiosqlite:///:memory:"
+      AZURE_SB_CONNECTION_STRING: ""
+
+  - task: PublishCodeCoverageResults@2
+    inputs:
+      summaryFileLocation: coverage.xml
+    displayName: "Publish coverage report"
+    condition: always()
+
+  - task: PublishTestResults@2
+    inputs:
+      testResultsFormat: JUnit
+      testResultsFiles: "**/test-results.xml"
+    displayName: "Publish test results"
+    condition: always()
