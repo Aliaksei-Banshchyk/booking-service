@@ -15,19 +15,6 @@ pr:
       - main
       - develop
 
-# ── Shared repo (GitHub) checked out alongside the service repo ───────────────
-# Prerequisites in Azure DevOps:
-#   1. Create a GitHub service connection (Project Settings → Service connections)
-#      and note its name – replace GitHubConnection below.
-#   2. Replace 'Aliaksei-Banshchyk/shared' with the actual shared repo name if
-#      it differs.
-resources:
-  repositories:
-    - repository: shared
-      type: github
-      name: Aliaksei-Banshchyk/shared   # ← confirm repo name
-      endpoint: GitHubConnection         # ← your ADO GitHub service connection
-
 pool:
   vmImage: ubuntu-latest
 
@@ -35,10 +22,7 @@ variables:
   PYTHON_VERSION: "3.12"
   PIP_CACHE_DIR: $(Pipeline.Workspace)/.pip
   ARTIFACTS_FEED: "volunteer-feed"
-  # With multi-repo checkout every repo lands in its own subfolder:
-  #   $(Pipeline.Workspace)/s/<repo-name>/
-  # The shared repo will be at the path below.
-  SHARED_PATH: $(Pipeline.Workspace)/s/shared
+  SHARED_PATH: $(Pipeline.Workspace)/shared
 
 stages:
 # ╔══════════════════════════════════════════════════════════════════════════╗
@@ -50,9 +34,6 @@ stages:
       - job: Flake8
         displayName: "flake8 – syntax & style check"
         steps:
-          - checkout: self
-          - checkout: shared
-
           - task: UsePythonVersion@0
             displayName: "Use Python $(PYTHON_VERSION)"
             inputs:
@@ -101,9 +82,6 @@ stages:
       - job: Pytest
         displayName: "pytest – unit tests"
         steps:
-          - checkout: self
-          - checkout: shared
-
           - task: UsePythonVersion@0
             displayName: "Use Python $(PYTHON_VERSION)"
             inputs:
@@ -123,6 +101,10 @@ stages:
             inputs:
               artifactFeeds: $(ARTIFACTS_FEED)
               onlyAddExtraIndex: true
+
+          - script: |
+              git clone https://github.com/Aliaksei-Banshchyk/shared $(SHARED_PATH)
+            displayName: "Checkout shared repo"
 
           - script: |
               python -m pip install --upgrade pip
@@ -145,7 +127,6 @@ stages:
             env:
               AZURE_PG_URL: "sqlite+aiosqlite:///:memory:"
               AZURE_SB_CONNECTION_STRING: ""
-              # Shared modules are importable without any sys.path tricks
               PYTHONPATH: $(SHARED_PATH)
 
           - task: PublishTestResults@2
