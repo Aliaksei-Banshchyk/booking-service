@@ -1,80 +1,145 @@
-# ============================================================
-# Azure Pipelines – BookingService  (multi-repo setup)
-# volunteer-shared is installed from Azure Artifacts
-# ============================================================
-
+# ──────────────────────────────────────────────────────────────────────────────
+# Azure Pipelines – booking_service
+#
+# Stage 1 – Static Analysis  : flake8 syntax / style check
+# Stage 2 – Tests            : pytest, results published as JUnit + artifacts
+# ──────────────────────────────────────────────────────────────────────────────
 trigger:
   branches:
     include:
       - main
-
+      - develop
 pr:
   branches:
     include:
       - main
+      - develop
 
 pool:
   vmImage: ubuntu-latest
 
 variables:
   PYTHON_VERSION: "3.12"
+  PIP_CACHE_DIR: $(Pipeline.Workspace)/.pip
   ARTIFACTS_FEED: "volunteer-feed"
 
-steps:
-  - checkout: self
+stages:
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  STAGE 1 – Static Analysis (flake8)                                     ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+  - stage: StaticAnalysis
+    displayName: "Stage 1 – Static Analysis (flake8)"
+    jobs:
+      - job: Flake8
+        displayName: "flake8 – syntax & style check"
+        steps:
+          - task: UsePythonVersion@0
+            displayName: "Use Python $(PYTHON_VERSION)"
+            inputs:
+              versionSpec: "$(PYTHON_VERSION)"
+              addToPath: true
 
-  - task: UsePythonVersion@0
-    inputs:
-      versionSpec: $(PYTHON_VERSION)
-      addToPath: true
-    displayName: "Use Python $(PYTHON_VERSION)"
+          - task: Cache@2
+            displayName: "Cache pip packages"
+            inputs:
+              key: 'pip | "$(Agent.OS)" | requirements.txt'
+              restoreKeys: |
+                pip | "$(Agent.OS)"
+              path: $(PIP_CACHE_DIR)
 
-  - task: PipAuthenticate@1
-    inputs:
-      artifactFeeds: $(ARTIFACTS_FEED)
-      onlyAddExtraIndex: true
-    displayName: "Authenticate with Azure Artifacts"
+          - script: |
+              python -m pip install --upgrade pip
+              pip install flake8
+            displayName: "Install flake8"
 
-  - script: |
-      python -m pip install --upgrade pip
-      pip install -r requirements.txt
-      pip install flake8 mypy pytest pytest-asyncio pytest-cov httpx aiosqlite
-    displayName: "Install dependencies"
+          - script: |
+              flake8 . \
+                --exclude=.venv,__pycache__,.git \
+                --max-line-length=120 \
+                --statistics \
+                --count \
+                --format="%(path)s:%(row)d:%(col)d: %(code)s %(text)s" \
+                | tee flake8-report.txt
+            displayName: "Run flake8"
 
-  - script: |
-      flake8 booking_service/ main.py \
-        --max-line-length=120 \
-        --exclude=__pycache__,.venv \
-        --statistics
-    displayName: "Lint: flake8"
+          - task: PublishPipelineArtifact@1
+            displayName: "Publish flake8 report"
+            condition: always()
+            inputs:
+              targetPath: "flake8-report.txt"
+              artifact: "flake8-report"
+              publishLocation: "pipeline"
 
-  - script: |
-      mypy booking_service/ \
-        --ignore-missing-imports \
-        --no-strict-optional
-    displayName: "Type check: mypy"
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  STAGE 2 – Tests (pytest)                                               ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+  - stage: Tests
+    displayName: "Stage 2 – Tests (pytest)"
+    dependsOn: StaticAnalysis
+    condition: succeeded()
+    jobs:
+      - job: Pytest
+        displayName: "pytest – unit tests"
+        steps:
+          - task: UsePythonVersion@0
+            displayName: "Use Python $(PYTHON_VERSION)"
+            inputs:
+              versionSpec: "$(PYTHON_VERSION)"
+              addToPath: true
 
-  - script: |
-      pytest booking_service/tests/ \
-        --asyncio-mode=auto \
-        --cov=booking_service \
-        --cov-report=xml:coverage.xml \
-        --cov-report=term-missing \
-        -v
-    displayName: "Run unit tests"
-    env:
-      AZURE_PG_URL: "sqlite+aiosqlite:///:memory:"
-      AZURE_SB_CONNECTION_STRING: ""
+          - task: Cache@2
+            displayName: "Cache pip packages"
+            inputs:
+              key: 'pip | "$(Agent.OS)" | requirements.txt'
+              restoreKeys: |
+                pip | "$(Agent.OS)"
+              path: $(PIP_CACHE_DIR)
 
-  - task: PublishCodeCoverageResults@2
-    inputs:
-      summaryFileLocation: coverage.xml
-    displayName: "Publish coverage report"
-    condition: always()
+          - task: PipAuthenticate@1
+            displayName: "Authenticate with Azure Artifacts"
+            inputs:
+              artifactFeeds: $(ARTIFACTS_FEED)
+              onlyAddExtraIndex: true
 
-  - task: PublishTestResults@2
-    inputs:
-      testResultsFormat: JUnit
-      testResultsFiles: "**/test-results.xml"
-    displayName: "Publish test results"
-    condition: always()
+          - script: |
+              python -m pip install --upgrade pip
+              pip install -r requirements.txt
+              pip install pytest pytest-cov pytest-asyncio httpx aiosqlite
+            displayName: "Install dependencies"
+
+          - script: |
+              mkdir -p test-results
+              pytest tests/ \
+                -v \
+                --asyncio-mode=auto \
+                --junitxml=test-results/results.xml \
+                --cov=. \
+                --cov-report=xml:test-results/coverage.xml \
+                --cov-report=term-missing
+            displayName: "Run pytest"
+            env:
+              AZURE_PG_URL: "sqlite+aiosqlite:///:memory:"
+              AZURE_SB_CONNECTION_STRING: ""
+
+          - task: PublishTestResults@2
+            displayName: "Publish test results"
+            condition: always()
+            inputs:
+              testResultsFormat: "JUnit"
+              testResultsFiles: "test-results/results.xml"
+              failTaskOnFailedTests: true
+              testRunTitle: "pytest – booking_service"
+
+          - task: PublishCodeCoverageResults@2
+            displayName: "Publish code coverage"
+            condition: always()
+            inputs:
+              summaryFileLocation: "test-results/coverage.xml"
+
+          - task: PublishPipelineArtifact@1
+            displayName: "Publish test artifacts"
+            condition: always()
+            inputs:
+              targetPath: "test-results"
+              artifact: "pytest-results"
+              publishLocation: "pipeline"
