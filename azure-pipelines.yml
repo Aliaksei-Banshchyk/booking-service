@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Azure Pipelines – booking_service
+# Azure Pipelines – user_service
 #
 # Stage 1 – Static Analysis  : flake8 syntax / style check
 # Stage 2 – Tests            : pytest, results published as JUnit + artifacts
@@ -104,14 +104,15 @@ stages:
           - script: |
               python -m pip install --upgrade pip
               pip install -r requirements.txt
-              pip install pytest pytest-cov pytest-asyncio httpx aiosqlite
+              pip install pytest pytest-cov sqlalchemy \
+                          python-jose[cryptography] passlib \
+                          httpx pyodbc
             displayName: "Install dependencies"
 
           - script: |
               mkdir -p test-results
-              pytest tests/ \
+              pytest test_bookings.py \
                 -v \
-                --asyncio-mode=auto \
                 --junitxml=test-results/results.xml \
                 --cov=. \
                 --cov-report=xml:test-results/coverage.xml \
