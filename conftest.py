@@ -1,19 +1,9 @@
-"""
-conftest.py – BookingService
-Place at the ROOT of the booking-service repo alongside bookings.py.
-
-Extra: mocks utility.get so HTTP calls to EventService are never made.
-Also mocks the message broker publish so Azure Service Bus is not needed.
-
-volunteer-shared must be installed (via Azure Artifacts) before running tests,
-so database, models, auth etc. are importable as regular installed packages.
-"""
 import os
-
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from unittest.mock import patch, MagicMock
+from datetime import datetime
 
 SQLITE_URL = "sqlite:///./test.db"
 
@@ -25,9 +15,7 @@ with patch.dict(os.environ, {
     import models
 
 database.engine = create_engine(SQLITE_URL, connect_args={"check_same_thread": False})
-database.SessionLocal = sessionmaker(
-    autocommit=False, autoflush=False, bind=database.engine
-)
+database.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=database.engine)
 
 for table in models.Base.metadata.tables.values():
     table.schema = None
@@ -38,17 +26,16 @@ from database import get_db
 from auth import get_current_user
 
 
-# ── Mock HTTP response that looks like EventService returning 200 ─────────────
-def _mock_event_found(*args, **kwargs):
-    resp = MagicMock()
-    resp.status_code = 200
-    return resp
+def _event_found(*args, **kwargs):
+    m = MagicMock()
+    m.status_code = 200
+    return m
 
 
-def _mock_event_not_found(*args, **kwargs):
-    resp = MagicMock()
-    resp.status_code = 404
-    return resp
+def _event_not_found(*args, **kwargs):
+    m = MagicMock()
+    m.status_code = 404
+    return m
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -74,9 +61,7 @@ def db():
 @pytest.fixture()
 def client(db):
     from fastapi.testclient import TestClient
-    from datetime import datetime
 
-    # Seed test user and event so FK constraints pass
     test_user = models.User(
         id=1, login="testuser",
         password=auth.hash_password("password123"),
@@ -95,7 +80,7 @@ def client(db):
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_current_user] = lambda: test_user
 
-    with patch("utility.get", side_effect=_mock_event_found), \
+    with patch("utility.get", side_effect=_event_found), \
          patch("booking_message_broker.publish", return_value=None):
         with TestClient(app) as c:
             yield c, test_user, test_event
@@ -105,7 +90,6 @@ def client(db):
 
 @pytest.fixture()
 def client_event_missing(db):
-    """Client where EventService returns 404 for any event lookup."""
     from fastapi.testclient import TestClient
 
     test_user = models.User(
@@ -119,7 +103,7 @@ def client_event_missing(db):
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_current_user] = lambda: test_user
 
-    with patch("utility.get", side_effect=_mock_event_not_found), \
+    with patch("utility.get", side_effect=_event_not_found), \
          patch("booking_message_broker.publish", return_value=None):
         with TestClient(app) as c:
             yield c
