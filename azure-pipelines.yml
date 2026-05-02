@@ -116,7 +116,7 @@ stages:
 
           - script: |
               mkdir -p test-results
-              pytest tests/ \
+              pytest . \
                 -v \
                 --asyncio-mode=auto \
                 --junitxml=test-results/results.xml \
